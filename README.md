@@ -11,7 +11,8 @@ The visual effect obtained match with the rhythm of the music, so I decided to k
 
 I started by correcting this bug, but at the end of story I decided to rewrite everything from scratch.
 
-I have strongly limited the use of the String class as much as possible;
+I have strongly limited the use of the String to keep RAM fragmentation under control;
 Eliminated the code for the Dallas DS18B20 temperature sensor using the internal one of the DS3231;
+Eliminated the use of TimeLib library wich is redundant in my opinion;
 Added a library for the management of the RGB Led in a more flexible and user-configurable way (is possible set the light intensity and the fading cycle speed);
 Added several transition effects like text scrolling or countdown in step 9-> 0 (todo: ghost effect);
