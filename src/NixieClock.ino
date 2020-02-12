@@ -39,9 +39,9 @@ const byte LOWER_DOTS = 8;  //HIGH value light a dots
 RGB_LED LED(RED_PIN, GREEN_PIN, BLUE_PIN);
 
 
-RTC_DS3231 RTC;
+//RTC_DS3231 RTC;
 
-//RTC_Millis RTC;
+RTC_Millis RTC;
 
 
 int hours, minutes, seconds, day, month, year;
@@ -57,17 +57,14 @@ ClickButton setButton(MODE, LOW, CLICKBTN_PULLUP);
 ClickButton upButton(UP, LOW, CLICKBTN_PULLUP);
 ClickButton downButton(DOWN, LOW, CLICKBTN_PULLUP);
 
-#include "songsTimerFree.h"
-#include "nixie_menu.h"
-
 // list of all editable settings 
 bool ledOn = true;
 bool ledLock = false;
 byte RedLight;
 byte GreenLight;
 byte BlueLight;
-int h_time = H24;
-int h_date = EU_DATE;
+int h_time = 0;
+int h_date = 0;
 int alarmOn = 0;
 int alarmHour = 0;
 int alarmMin = 0;
@@ -79,20 +76,12 @@ int RGBPower = 20;
 
 bool editSettings, lastEdit = false;
 #include "settings.h"
-
-Pages pActive = pTime;
-uint8_t currentPage = pActive.idPage;
-uint8_t oldPage = 99;
-
-// List of functions for update text to show with nixie. 
-void setStringTime();
-void setStringDate();
-void setStringAlarm();
-void setStringTemperature();
-void setStringRGB();
+#include "songsTimerFree.h"
+#include "driveNixie.h"
+#include "nixieMenu.h"
 
 
-// Define an array of function pointers
+// Define an array of pointers to functions  that will update nixie's text. 
 typedef void (*StringFunctions[])();
 StringFunctions setString = { setStringTime, setStringDate, setStringAlarm, setStringTemperature, setStringRGB };
 
@@ -120,13 +109,13 @@ void setup(){
   SerialBegin(115200);
   
   // Only with RTC_millis
-  //RTC.begin(DateTime(F(__DATE__), F(__TIME__))) ;
-  
+  RTC.begin(DateTime(F(__DATE__), F(__TIME__))) ;
+  /*
   if (! RTC.begin() ) {
     Println("Couldn't find RTC");
     while (1);
   }
-  
+  */
   
   RTC_present=true;
   getRTCTime();
@@ -597,80 +586,6 @@ void changePage(){
 }
 
 
-// Displayed text on nixie will be setted according to the actual page
-void setStringTime() {
-  if(pActive.idPage == PE_HTIME){
-    if(h_time)
-      sprintf(strToDisplay, "    12" );
-    else
-      sprintf(strToDisplay, "    24" );
-    return;
-  }
-
-  if (h_time) 
-    sprintf(strToDisplay, "%02u%02u%02u", hours % 12, minutes, seconds);    
-  else 
-    sprintf(strToDisplay, "%02u%02u%02u", hours , minutes, seconds);
-     
-}
-
-void setStringDate() {
-  if(pActive.idPage == PE_HTIME){
-    if(h_date)
-      sprintf(strToDisplay, "123199" );
-    else
-      sprintf(strToDisplay, "311299" );
-    return;
-  }
-
-  if (h_date)     
-    sprintf(strToDisplay, "%02u%02u%02u", month, day, year % 1000);
-  else 
-    sprintf(strToDisplay, "%02u%02u%02u", day , month, year % 1000);    
-}
-
-void setStringAlarm() {
-  if(pActive.idPage == PE_A_ENABLE){
-    sprintf(strToDisplay, "%01d     ", alarmOn );
-    return;
-  }
-  sprintf(strToDisplay, "%02u%02u%02u", alarmHour , alarmMin, alarmSec);
-}
-
-void setStringRGB() {
-  if(pActive.idPage == PE_RGB_POWER){
-    //int RGBPower = LED.getPower() * 100;
-    sprintf(strToDisplay, "   %03d", RGBPower );
-    return;
-  }
-  if(pActive.idPage == PE_RGB_SPEED){
-    //int FAdeSpeed = LED.getSpeed() / 1000;
-    sprintf(strToDisplay, "    %02d", RGBFadeSpeed );
-    return;
-  }
-  int curRGBPower = LED.getPower() * 100;
-  sprintf(strToDisplay, "   %03d", curRGBPower );
-}
-
-void setStringTemperature(){
-  if(pActive.idPage == PE_T_OFFSET){
-    sprintf(strToDisplay, "    %02d", tempOffset );
-    return;
-  }
-
-  if(pActive.idPage == PE_CELSIUS){
-    sprintf(strToDisplay, "%01d     ", tempType );
-    return;
-  }
-
-  float fdegree = RTC.getTemperature();
-  if(tempType){
-    fdegree = (fdegree * 1.8 + 32.0) ;
-    sprintf(strToDisplay, " %03d%02d", (int)fdegree, (int)(fdegree * 100)%100 );
-  }
-  else
-    sprintf(strToDisplay, "  %02d%02d", (int)fdegree, (int)(fdegree * 100)%100 );
-}
 
 
 // Get actual date & time from RTC
