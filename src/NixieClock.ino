@@ -1,7 +1,7 @@
-#define FirmwareVersion "016000"
+#define FirmwareVersion "000170"
 #define HardwareVersion "MCU109 for 4XX Series."
 
-#define DEBUG 1
+#define DEBUG 0
 #if DEBUG
   #define Print(x) Serial.print(x)
   #define Println(x) Serial.println(x)
@@ -14,7 +14,7 @@
 
 #define NUM_TUBES 6
 #define SCROLL_TIME 200
-#define VOLUME 6
+#define VOLUME 8
 
 #include <SPI.h>
 #include <Wire.h>
@@ -39,9 +39,9 @@ const byte LOWER_DOTS = 8;  //HIGH value light a dots
 RGB_LED LED(RED_PIN, GREEN_PIN, BLUE_PIN);
 
 
-//RTC_DS3231 RTC;
+RTC_DS3231 RTC;
 
-RTC_Millis RTC;
+//RTC_Millis RTC;
 
 
 int hours, minutes, seconds, day, month, year;
@@ -74,12 +74,21 @@ int tempOffset = 0;
 int RGBFadeSpeed = 5;
 int RGBPower = 20;
 
+typedef struct {
+  uint8_t preset = 9;
+  int value = 0;
+  bool ready = false;
+  bool run = false;
+  uint32_t startTime;
+} RollDigit;
+
+RollDigit rollDigit[NUM_TUBES];
 bool editSettings, lastEdit = false;
+
 #include "settings.h"
 #include "songsTimerFree.h"
 #include "driveNixie.h"
 #include "nixieMenu.h"
-
 
 // Define an array of pointers to functions  that will update nixie's text. 
 typedef void (*StringFunctions[])();
@@ -96,6 +105,11 @@ uint8_t currentSetString = TIME;
   Init Programm
 *******************************************************************************************************/
 void setup(){
+  // SPI setup
+  SPI.begin(); //
+  SPI.setDataMode (SPI_MODE2); // Mode 2 SPI // судя по данным осциллографа нужно использовать этот режим
+  SPI.setClockDivider(SPI_CLOCK_DIV8); // SCK = 16MHz/128= 125kHz
+
   // Pins definition
   pinMode(LE, OUTPUT);
   digitalWrite(LE, LOW);
@@ -109,32 +123,25 @@ void setup(){
   SerialBegin(115200);
   
   // Only with RTC_millis
-  RTC.begin(DateTime(F(__DATE__), F(__TIME__))) ;
-  /*
+  //RTC.begin(DateTime(F(__DATE__), F(__TIME__))) ;
+  
   if (! RTC.begin() ) {
-    Println("Couldn't find RTC");
+    Println(F("Couldn't find RTC"));
     while (1);
   }
-  */
-  
+   
   RTC_present=true;
   getRTCTime();
   
-
-  // SPI setup
-  SPI.begin(); //
-  SPI.setDataMode (SPI_MODE2); // Mode 2 SPI // судя по данным осциллографа нужно использовать этот режим
-  SPI.setClockDivider(SPI_CLOCK_DIV8); // SCK = 16MHz/128= 125kHz
- 
   //buttons objects inits
   setButton.debounceTime   = 20;   // Debounce timer in ms
-  setButton.multiclickTime = 10;  // Time limit for multi clicks
-  setButton.longClickTime  = 2000; // time until "held-down clicks" register
+  setButton.multiclickTime = 5;  // Time limit for multi clicks
+  setButton.longClickTime  = 1500; // time until "held-down clicks" register
   upButton.debounceTime   = 20;   // Debounce timer in ms
   upButton.multiclickTime = 10;  // Time limit for multi clicks
   upButton.longClickTime  = 2000; // time until "held-down clicks" register
   downButton.debounceTime   = 20;   // Debounce timer in ms
-  downButton.multiclickTime = 30;  // Time limit for multi clicks
+  downButton.multiclickTime = 5;  // Time limit for multi clicks
   downButton.longClickTime  = 2000; // time until "held-down clicks" register
   
   loadSettings();
@@ -147,23 +154,19 @@ void setup(){
   LED.setPercentFade(100.0);
   LED.setPower((float)RGBPower/100.0);
 
-  /*
-  // TEST 
-  LED.set(80, 10, 80);
-  ledLock = false;
-  ledOn = true;
-  LED.setSpeed(5000);
-  LED.setPower(1.0);
-  */ 
- 
   blinkGroup = noBlink;
   dotPattern = allDots;
+  rollDigit[0].preset = 2;
+  rollDigit[1].preset = 3;
+  rollDigit[2].preset = 5;
+  rollDigit[3].preset = 9;
+  rollDigit[4].preset = 5;
+  rollDigit[5].preset = 9;
 
-  //doTest();
+  doTest();
   // Prepare song in order to be played
-  //parseMusic();
+  // parseMusic();
 }
-
 
 
 /***************************************************************************************************************
@@ -176,16 +179,17 @@ void loop() {
     updateTime = millis();
     if(!editSettings )
       getRTCTime();
+    
     // Execute actual "setString" function selected 
     // (the one defined in "StringFunctions" with index == currentSetString)
     setString[currentSetString]();
-    Print("Display: ");    Println(strToDisplay);
+    //Print("Display: ");    Println(strToDisplay);
   }
 
   // Update nixie display at 500Hz frequency
   if(micros() - updateNixieTime > 500 ){
     updateNixieTime = micros();
-    updateNixie(blinkGroup, dotPattern);
+    updateNixie(blinkGroup, dotPattern, pActive.dotBlink);
   }
 
   // Drive RGB led to next coulour
@@ -266,7 +270,7 @@ void loop() {
 
   // Page changed, update display
   if(currentPage != oldPage ){
-    Print("Actual page: ");  Println(currentPage);
+    Print(F("Actual page: "));  Println(currentPage);
     oldPage = currentPage;
     changePage();
   }
@@ -274,16 +278,19 @@ void loop() {
   // perform Anthi Cathode Poisoning (at second 35)
   if(!playing) {  // If not music sound   
     if(seconds == 35 && currentPage == pTime.idPage){      
-      for(int i=0; i<NUM_TUBES; i++)        
-        rollToZero(i, 9, 5);
+      for(int i=0; i<NUM_TUBES; i++)
+        rollToZero(i, 9, 10);
+      delay(150);
       doACP();
       currentPage = pDate.idPage;
+      changePage();      
     }
 
     // Go back to time display
     if(seconds == 43 && currentPage == pDate.idPage) 
       scrollTo(pTime.idPage);
   }
+  
 
   // Rising edge entering in setup mode
   if(editSettings &! lastEdit)
@@ -299,7 +306,7 @@ void loop() {
 
   // Alarm triggered, predispose music in order to be played
   if(alarmOn && hours == alarmHour && minutes == alarmMin && seconds == alarmSec){
-    Println("Alarm ON");
+    Println(F("Alarm ON"));
     parseMusic();
   }
   // Play music now
@@ -313,51 +320,93 @@ void loop() {
 
 
 
+
 // Visual effect on nixie digits
 void checkRollDigit(){
-  for(int i=NUM_TUBES-1; i>=0; i--){
-    static uint8_t oldNum[NUM_TUBES];
-    static uint8_t counters [NUM_TUBES];
-    static bool rollingToZero [NUM_TUBES];
-
-    int num = strToDisplay[i] - '0';
-    if ( num != oldNum[i]){
-      if(oldNum[i] == 9 && (i == 5 || i == 3)) {
-        rollingToZero[i] = true;
-        counters[i] = 9;
-      }
-      else if(oldNum[i] == 5 && (i == 4 || i == 2)){        
-        rollingToZero[i] = true;
-        counters[i] = 5;
-      }
-      else if(oldNum[i] == 4 && (i == 1)){
-        rollingToZero[i] = true;
-        counters[i] = 4;
-      }
-      else if(oldNum[i] == 2 && (i == 0)){
-        rollingToZero[i] = true;
-        counters[i] = 2;
-      }
-      oldNum[i] = num;    
+  for(int i=0; i< NUM_TUBES; i++){
+    int displayedNum = strToDisplay[i] - '0';
+    // Reset the actual digit
+    if (displayedNum == (rollDigit[i].preset-1)  && !rollDigit[i].run ){
+      rollDigit[i].ready = false;
     }
     
-    if(rollingToZero[i] && num == 0){     
-      rollToZero(i, counters[i], 60);    
-      rollingToZero[i] = false;
-    }        
+    bool setReady;
+    switch (i){
+      case 5:
+        setReady = (seconds % 10 == 9);
+        break;
+      case 4:
+        setReady = (seconds == 59);
+        break;
+      case 3:
+        setReady = (seconds == 59) & (minutes % 10 == 9);
+        break;
+      case 2:
+        setReady = (seconds == 59) & (minutes == 59);
+        break;
+      case 1:
+        setReady = (hours == 23) & (seconds == 59) & (minutes == 59);
+        break;
+      case 0:
+        setReady = (hours == 23) & (seconds == 59) & (minutes == 59);
+        break;
+
+    }
+    
+    
+    
+    // Set ready to roll when preset == actual value && last digit is ready to roll (last second before)
+    if (displayedNum == rollDigit[i].preset && !rollDigit[i].ready && setReady ){
+      rollDigit[i].ready = true;
+      rollDigit[i].run = false;
+      rollDigit[i].value = rollDigit[i].preset;
+      rollDigit[i].startTime = millis();
+      //Print("i: "); Print(i);  Println(" millis(): ");
+      //Print(rollDigit[i].startTime ); Println(" -> ready");
+    }
+    // it's time to start roll back
+    if(rollDigit[i].ready && !rollDigit[i].run){     
+      if( millis() > rollDigit[i].startTime + 700) {
+        rollDigit[i].run = true;
+      }
+    }
+    // Execute the roll back function (non blocking)
+    if(rollDigit[i].run){
+      rollToZeroNB(i, 50 );
+    }   
+  
   }
 }
 
+// NON blocking function for executing roll to zero (normal operation)
+void rollToZeroNB(uint8_t digit, uint16_t rollDelay){
+  static uint32_t rollTime = millis();
+  if (rollDigit[digit].value >= 0){
+    updateNixie(blinkGroup, dotPattern, pActive.dotBlink);
+    delayMicroseconds(500);
+    if(millis() - rollTime > rollDelay){
+      rollTime = millis();                                     
+      strToDisplay[digit] = rollDigit[digit].value + '0';     
+      rollDigit[digit].value--;    // Next    
+      //Print("go back "); Println(strToDisplay);     
+    } 
+  } 
+  else{
+    rollDigit[digit].run = false;
+  }
+}
+
+// blocking function for executing roll to zero (during APC)
 void rollToZero(uint8_t digit, int counter, uint16_t rollDelay){
   static uint32_t rollTime = millis();
   while (counter >= 0){
-    updateNixie(blinkGroup, dotPattern);
+    updateNixie(blinkGroup, dotPattern, pActive.dotBlink);
     delayMicroseconds(500);
     if(millis() - rollTime > rollDelay){
       rollTime = millis();                           
       strToDisplay[digit] = counter + '0'; 
       counter--;    // Next      
-      Print("Back to zero "); Println(strToDisplay);      
+      //Print("Back to zero "); Println(strToDisplay);      
     }    
   }  
 }
@@ -370,7 +419,7 @@ void doACP(){
   while (digit != 2){
     if(millis() - digitTime > 20){
       digitTime = millis();
-      if(millis()- numTime > 50){
+      if(millis()- numTime > 40){
         numTime = millis();
         number++;        
         strToDisplay[0] = (number %10 )+ '0';
@@ -385,23 +434,25 @@ void doACP(){
         }
       }
     }
-    updateNixie(blinkGroup, dotPattern);
+    delayMicroseconds(500);
+    updateNixie(blinkGroup, dotPattern, pActive.dotBlink);
   }
   sprintf(strToDisplay, "      ");
-  updateNixie(blinkGroup, dotPattern);
+  updateNixie(blinkGroup, dotPattern, pActive.dotBlink);
   delay(100);
-
 }
 
+// Scroll text to the left
 void scrollTo( uint8_t page){
   static uint32_t scrollTime = millis();
   int pos = 0;
   while (pos <= NUM_TUBES+1){
-    // Force update showed text
-    updateNixie(blinkGroup, dotPattern);
+    // Force update showed text    
+    delayMicroseconds(500);
+    updateNixie(blinkGroup, noDots, pActive.dotBlink);
     if(millis() - scrollTime > SCROLL_TIME){
       scrollTime = millis();                   
-      Print(pos); Print(" - "); Println(strToDisplay);   
+      //Print(pos); Print(" - "); Println(strToDisplay);   
       memmove(strToDisplay, strToDisplay + 1, NUM_TUBES);  
       pos++;    // Next
     }
@@ -478,7 +529,8 @@ void updateValue(int val){
   // Call update() function passing selected variable as reference
   update(ptrData, val, min, max);
   // Force the update of showed text
-  updateNixie(blinkGroup, dotPattern);    
+  setString[currentSetString]();
+  updateNixie(blinkGroup, dotPattern, pActive.dotBlink);    
 }
 
 void update(int *value, int x,  int min, int max){
@@ -486,9 +538,9 @@ void update(int *value, int x,  int min, int max){
   res = *value ;
   res += x;
   if(res > max)
-    res = max;
-  if(res < min)
     res = min;
+  if(res < min)
+    res = max;
   *value = res;
 }
 
@@ -581,8 +633,10 @@ void changePage(){
     editSettings = false;
   else {
     editSettings = true;
-  }
+  
   setString[currentSetString]();
+  updateNixie(blinkGroup, dotPattern, pActive.dotBlink);
+  }
 }
 
 
@@ -609,13 +663,11 @@ void setRGBled(){
     LED.set(RedLight, GreenLight, BlueLight);
     return;
   }
-
   LED.run();
 }
 
 // Perform initial test
-void doTest()
-{
+void doTest() {
   Print(F("Firmware version: "));
   Println(F(FirmwareVersion));
   Println(F(HardwareVersion));
@@ -652,7 +704,7 @@ void doTest()
        memcpy(strToDisplay, testStringArray[strIndex], 6);
        Println(strToDisplay);
       }
-    updateNixie(0, 0);
+    updateNixie(0, 0, false);
   }
    
   Println(F("Stop Test"));

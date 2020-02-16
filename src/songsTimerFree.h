@@ -98,7 +98,6 @@
   #define PrintNote(x)
 #endif
 
-#define isdigit(n) (n >= '0' && n <= '9')
 //char *song ="MissionImp:d=16,o=6,b=95:32d,32d#,32d,32d#,32d,32d#,32d,32d#,32d,32d,32d#,32e,32f,32f#,32g,g,8p,g,8p,a#,p,c7,p,g,8p,g,8p,f,p,f#,p,g,8p,g,8p,a#,p,c7,p,g,8p,g,8p,f,p,f#,p,a#,g,2d,32p,a#,g,2c#,32p,a#,g,2c,a#5,8c,2p,32p,a#5,g5,2f#,32p,a#5,g5,2f,32p,a#5,g5,2e,d#,8d";
 //char *song ="PinkPanther:d=4,o=5,b=160:8d#,8e,2p,8f#,8g,2p,8d#,8e,16p,8f#,8g,16p,8c6,8b,16p,8d#,8e,16p,8b,2a#,2p,16a,16g,16e,16d,2e";
 //char *song="DasBoot:d=4,o=5,b=100:d#.4,8d4,8c4,8d4,8d#4,8g4,a#.4,8a4,8g4,8a4,8a#4,8d,2f.,p,f.4,8e4,8d4,8e4,8f4,8a4,c.,8b4,8a4,8b4,8c,8e,2g.,2p";
@@ -160,7 +159,7 @@ void playMusic(){
   if(ch == ','){
     num = 0;
     int k = 0;
-    while (isdigit(myNote[k]))  { 
+    while (isDigit(myNote[k]))  { 
       num = (num * 10) + (myNote[k] - '0');
       k++;
     } 
@@ -220,7 +219,7 @@ void playMusic(){
     } 
 
     // now, get scale
-    if (isdigit(ch))  
+    if (isDigit(ch))  
       scale = myNote[k] - '0';    
     else  
       scale = default_oct;
